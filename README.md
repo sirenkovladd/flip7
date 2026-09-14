@@ -30,6 +30,8 @@ npm test              # engine rules tests (15 green)
 Same-room flow: **Create** (mode/target/brutal/password/mid-game-join policy) → **share link or lobby QR** (code + auto password inside) → players **Join** → host **Starts**.
 Default view = **your cards only** (big center, deck/round top, HIT/STAY bottom). Toggle **Table** for one shared screen (all hands). Spectators always see the table.
 
+**Lobby never resets scores.** Back-to-lobby pauses the match: the lobby shows live totals, the host resumes the next round (or the paused mid-round game) with **Resume**, and scores reset only via an explicit **New match** button.
+
 ## Sessions, drops & host migration (all server-side)
 
 - **Names + rooms:** pick a name (auto-uniquified), 6-char room code, password per room (blank = auto 4-char, embedded in the invite link).

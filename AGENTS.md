@@ -22,6 +22,8 @@ that runs in the HOST's browser. No P2P, no build step.
 4. **Client `public/app.js` has 3 layers:** Net (WS + backoff reconnect +
    token session), Host (engine + intent validation + `pumpAndBroadcast`),
    UI (personal default + Table toggle, pickers). Keep them separable.
+   The lobby is a pause room, never a reset: resume continues the kept
+   engine/snapshot (scores intact); only Start/New-match builds a fresh engine.
 5. **State is serializable JSON.** Migration/reconnect = load snapshot.
    Never send functions. `state` seq guards stale snapshots.
 6. **Check bust/Flip7 after EVERY line change** (flip, swap, steal).

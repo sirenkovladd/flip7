@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/styles.css?v=0.2.1">
+  <link rel="stylesheet" href="/styles.css?v=0.2.2">
 </head>
 <body>
 <header class="topbar">
@@ -78,6 +78,10 @@
       <div id="qrWrap" hidden><div id="qrBox" class="qr"></div><div class="hint">scan to join</div></div>
       <p class="hint" id="lobbySettings"></p>
     </div>
+    <div class="panel" id="scorePanel" hidden>
+      <h2>Scores</h2>
+      <div id="lobbyScores" class="scores"></div>
+    </div>
     <div class="panel">
       <h2>Players <span id="seatCount"></span></h2>
       <ul id="seatList" class="seats"></ul>
@@ -88,6 +92,8 @@
     </div>
     <div class="row">
       <button id="startBtn" class="primary big" hidden>Start game</button>
+      <button id="resumeBtn" class="primary big" hidden>Resume</button>
+      <button id="newMatchBtn" class="danger" hidden>New match (reset scores)</button>
       <button id="leaveBtn">Leave</button>
     </div>
     <p id="lobbyErr" class="err"></p>
@@ -145,7 +151,7 @@
   </section>
 </main>
 
-<script src="/vendor/qrcode.js?v=0.2.1"></script>
-<script src="/app.js?v=0.2.1" type="module"></script>
+<script src="/vendor/qrcode.js?v=0.2.2"></script>
+<script src="/app.js?v=0.2.2" type="module"></script>
 </body>
 </html>

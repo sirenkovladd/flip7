@@ -29,7 +29,7 @@ import (
 
 // AppVersion is bumped on each release; clients requesting static
 // assets with ?v=<version> get immutable long-term caching.
-const AppVersion = "0.2.1"
+const AppVersion = "0.2.2"
 
 type staticEntry struct {
 	data    []byte

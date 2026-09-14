@@ -661,8 +661,8 @@ func (c *client) hostOnly(m msg) {
 		r.broadcastLocked(r.roomMsgLocked(nil))
 	case "backToLobby":
 		r.inGame = false
-		r.snapshot = nil // drop the finished game: followers must render lobby, not stale cards
-		r.seq = 0
+		// NOTE: snapshot/seq are kept on purpose — the lobby doubles as
+		// the score room and a paused mid-round game resumes from it.
 		r.broadcastLocked(r.roomMsgLocked(nil))
 	case "seatDecision":
 		s, ok := r.seats[m.PlayerID]

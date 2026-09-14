@@ -4,7 +4,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.2.1';
+const APP_V = '0.2.2';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -95,10 +95,8 @@ function route(m) {
 
 function onRoom(m) {
   S.seats = m.seats; S.settings = m.settings; S.inGame = m.inGame;
-  if (!m.inGame && !m.snapshot) {
-    // Back to lobby: no game to render anymore.
-    S.snap = null; S.choice = {};
-  } else if (m.snapshot && !S.me.isHost) {
+  if (!m.inGame) S.choice = {};
+  if (m.snapshot && !S.me.isHost) {
     // Followers track the server's latest snapshot.
     S.snap = m.snapshot; S.seq = m.seq || 0;
   } else if (m.snapshot && S.me.isHost && (m.seq || 0) > S.hostSeq) {
@@ -249,13 +247,11 @@ function alivePlayers() { return (S.snap?.players || []).filter((p) => p.status 
 function render() {
   $('tableToggleWrap').hidden = !(S.room && (S.snap || S.me.isHost));
   if (!S.room) { show('view-home'); return; }
-  if (!S.snap && !S.inGame) { renderLobby(); show('view-lobby'); return; }
-  if (!S.snap && S.me.isHost) { renderLobby(); show('view-lobby'); return; }
-  if (S.snap && ['turns', 'initialDeal', 'roundEnd', 'gameOver'].includes(S.snap.phase)) {
-    renderGame(); show('view-game');
-  } else {
-    renderLobby(); show('view-lobby');
-  }
+  // Lobby doubles as the score room: any time we're not playing, show it
+  // (fresh room, paused game, round break, or finished match).
+  if (!S.inGame) { renderLobby(); show('view-lobby'); return; }
+  if (!S.snap) { renderLobby(); show('view-lobby'); return; } // follower awaiting first state
+  renderGame(); show('view-game');
 }
 
 function renderLobby() {
@@ -270,7 +266,23 @@ function renderLobby() {
     `${s.spectator ? '<span class="tag spec">WATCH</span>' : ''}` +
     `${s.waiting ? '<span class="tag">WAITING</span>' : ''}` +
     `${!s.connected ? '<span class="tag off">OFFLINE</span>' : ''}</li>`).join('');
-  $('startBtn').hidden = !S.me.isHost;
+  // Lobby buttons depend on match state: fresh → Start; break/pause → Resume;
+  // scores present → New match offers an explicit reset. Scores are never reset otherwise.
+  const snap = S.snap;
+  const hasMatch = !!(snap && (snap.players || []).length);
+  const phase = snap?.phase;
+  $('scorePanel').hidden = !hasMatch;
+  if (hasMatch) {
+    $('lobbyScores').innerHTML = (snap.players || []).map((p) =>
+      `<span>${esc(p.name)}: <b>${p.total}</b>${(snap.winners || []).includes(p.id) ? ' 🏆' : ''}</span>`).join('');
+  }
+  const pausedMidRound = hasMatch && (phase === 'turns' || phase === 'initialDeal');
+  $('startBtn').hidden = !(S.me.isHost && !hasMatch);
+  $('resumeBtn').hidden = !(S.me.isHost && hasMatch && phase !== 'gameOver');
+  if (hasMatch && phase !== 'gameOver') {
+    $('resumeBtn').textContent = pausedMidRound ? `Resume round ${snap.round}` : `Resume — Round ${snap.round + 1}`;
+  }
+  $('newMatchBtn').hidden = !(S.me.isHost && hasMatch);
   $('showPassBtn').hidden = !S.me.isHost;
   const ap = $('approvalPanel');
   ap.hidden = !(S.me.isHost && S.joinReqs.length);
@@ -547,13 +559,15 @@ function init() {
   };
   $('showPassBtn').onclick = () => send({ t: 'getPass' });
   $('startBtn').onclick = startGame;
+  $('resumeBtn').onclick = resumeGame;
+  $('newMatchBtn').onclick = () => { if (confirm('Start a new match? All scores reset.')) startGame(); };
   $('leaveBtn').onclick = () => { sessClear(); location.href = '/'; };
   $('hitBtn').onclick = () => doOp({ op: 'hit' });
   $('stayBtn').onclick = () => doOp({ op: 'stay' });
-  $('nextRoundBtn').onclick = startGame;
+  $('nextRoundBtn').onclick = resumeGame;
   $('toLobbyBtn').onclick = () => {
-    // Host sends everyone back: drop local game at once, server echo confirms.
-    S.G = null; S.snap = null; S.choice = {}; S.dropped = [];
+    // Host pauses to lobby: match (scores + engine) is kept, echo confirms.
+    S.inGame = false; S.choice = {}; S.dropped = [];
     send({ t: 'backToLobby' });
     render();
   };
@@ -563,13 +577,10 @@ function init() {
   connect();
 }
 
-async function startGame() {
-  if (!S.me.isHost) return;
+// Roster sync (breaks only): approved spectators join, removed seats leave.
+// Never resets totals — scores persist until an explicit New match.
+async function syncRoster() {
   const eng = await engine();
-  if (!S.G || S.G.phase === 'gameOver') {
-    await becomeHostEngine();
-  }
-  // roster sync: approved spectators join, removed seats leave
   const seatIds = new Set(S.seats.map((s) => s.id));
   for (const s of S.seats) {
     if (!S.G.players.some((p) => p.id === s.id)) {
@@ -581,9 +592,38 @@ async function startGame() {
       try { eng.removePlayer(S.G, p.id); } catch {}
     }
   }
+}
+// Fresh match: new engine, scores reset. Only via Start / New match buttons.
+async function startGame() {
+  if (!S.me.isHost) return;
+  const eng = await engine();
+  await becomeHostEngine();
   try {
     eng.startRound(S.G);
   } catch (e) { toast(e.message); return; }
+  send({ t: 'start' });
+  S.inGame = true;
+  S.choice = {};
+  pumpAndBroadcast();
+}
+// Resume: keep the match (scores + engine). Round break → next round;
+// mid-round pause → continue the very same round.
+async function resumeGame() {
+  if (!S.me.isHost) return;
+  const eng = await engine();
+  if (!S.G) {
+    if (!S.snap) return; // e.g. host refreshed: rebuild engine from the kept snapshot
+    S.G = eng.restore(S.snap);
+    S.hostSeq = S.seq;
+  }
+  if (['roundEnd', 'gameOver'].includes(S.G.phase)) {
+    if (S.G.phase === 'gameOver') { startGame(); return; } // match over → resume means a new match
+    await syncRoster();
+    try {
+      eng.startRound(S.G);
+    } catch (e) { toast(e.message); return; }
+  }
+  // mid-round pause: engine continues untouched (roster changes apply at next break)
   send({ t: 'start' });
   S.inGame = true;
   S.choice = {};
