@@ -4,7 +4,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.2.3';
+const APP_V = '0.2.4';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -435,8 +435,23 @@ function renderNotices() {
         `<button data-drop="${d.id}" class="danger">Drop &amp; reset</button></div>`;
     }
   }
+  // Mid-game knocks must be visible here, not just in the lobby.
+  for (const q of S.joinReqs) {
+    html += `<div class="panel accent">🚪 <b>${esc(q.name)}</b> wants in. ` +
+      `<button data-approve="${q.id}">Let in</button> ` +
+      `<button data-deny="${q.id}">Deny</button></div>`;
+  }
   box.innerHTML = html;
+  box.querySelectorAll('[data-approve],[data-deny]').forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.approve || b.dataset.deny;
+      send({ t: 'joinDecision', requestId: id, approve: !!b.dataset.approve });
+      S.joinReqs = S.joinReqs.filter((r) => r.id !== id);
+      render();
+    };
+  });
   box.querySelectorAll('button').forEach((b) => {
+    if (b.dataset.approve || b.dataset.deny) return; // handled above
     b.onclick = async () => {
       const id = b.dataset.wait || b.dataset.drop;
       const wait = !!b.dataset.wait;

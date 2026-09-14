@@ -565,6 +565,35 @@ func (c *client) doGetPass() {
 	c.emit(msg{T: "roomPass", Room: c.room.code, Password: pw})
 }
 
+// plugSeatLocked attaches a live connection to a seat: same seat, same
+// hand, fresh snapshot. Used by token reconnects and name reclaims alike.
+// Caller holds r.mu.
+func (r *room) plugSeatLocked(c *client, s *seat, freshToken bool) {
+	if s.cl != nil && s.cl != c {
+		s.cl.conn.Close() // take over from the stale socket
+	}
+	if r.hostTimer != nil && s.isHost {
+		r.hostTimer.Stop()
+		r.hostTimer = nil
+		r.broadcastLocked(msg{T: "hostBack", HostID: s.id, HostName: s.name})
+	}
+	if freshToken {
+		s.token = randHex(16) // old token (if any) dies with the lost storage
+	}
+	s.waiting = false
+	s.cl = c
+	c.room, c.seat, c.pendingReq = r, s, ""
+	c.emit(msg{T: "joined", Room: r.code, PlayerID: s.id, Token: s.token})
+	c.emit(r.roomMsgLocked(s))
+	r.broadcastLocked(r.roomMsgLocked(nil))
+	if r.inGame {
+		if h := r.hostSeat(); h != nil && h != s {
+			r.sendToLocked(h, msg{T: "peerRejoined", PlayerID: s.id, FromName: s.name})
+		}
+	}
+	log.Printf("room %s: %s connected", r.code, s.name)
+}
+
 func (c *client) doJoin(m msg) {
 	r := c.hub.get(m.Room)
 	if r == nil {
@@ -577,27 +606,17 @@ func (c *client) doJoin(m msg) {
 	// Reconnect with token → same seat, same hand. No host action needed.
 	if m.PlayerID != "" && m.Token != "" {
 		if s, ok := r.seats[m.PlayerID]; ok && subtle.ConstantTimeCompare([]byte(s.token), []byte(m.Token)) == 1 {
-			if s.cl != nil && s.cl != c {
-				s.cl.conn.Close() // take over from the stale socket
-			}
-			if r.hostTimer != nil && s.isHost {
-				r.hostTimer.Stop()
-				r.hostTimer = nil
-				r.broadcastLocked(msg{T: "hostBack", HostID: s.id, HostName: s.name})
-			}
-			s.waiting = false
-			s.cl = c
-			c.room, c.seat, c.pendingReq = r, s, ""
-			c.emit(r.roomMsgLocked(s))
-			r.broadcastLocked(r.roomMsgLocked(nil))
-			if r.inGame {
-				if h := r.hostSeat(); h != nil && h != s {
-					r.sendToLocked(h, msg{T: "peerRejoined", PlayerID: s.id, FromName: s.name})
-				}
-			}
-			log.Printf("room %s: %s reconnected", r.code, s.name)
+			r.plugSeatLocked(c, s, false)
 			return
 		}
+	}
+	// Already knocking? Don't stack duplicate requests.
+	if c.pendingReq != "" {
+		if _, ok := r.pending[c.pendingReq]; ok {
+			c.emit(msg{T: "waitingApproval", Room: r.code, RequestID: c.pendingReq})
+			return
+		}
+		c.pendingReq = ""
 	}
 	// New seat: password check.
 	sum := sha256.Sum256([]byte(m.Password))
@@ -608,6 +627,15 @@ func (c *client) doJoin(m msg) {
 	if r.kicked[strings.ToLower(m.Name)] {
 		c.emit(msg{T: "joinDenied", Reason: "kicked by host"})
 		return
+	}
+	// Same person, lost token (cleared storage, new browser): reclaim their
+	// offline seat by name — no host approval needed unless kicked (above).
+	// Only offline seats are claimable, so nobody can steal a live seat.
+	for _, id := range r.order {
+		if s, ok := r.seats[id]; ok && s.cl == nil && strings.EqualFold(s.name, m.Name) {
+			r.plugSeatLocked(c, s, true)
+			return
+		}
 	}
 	if len(r.seats) >= maxPlayers {
 		c.emit(msg{T: "joinDenied", Reason: "room is full"})

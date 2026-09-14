@@ -37,6 +37,7 @@ Default view = **your cards only** (big center, deck/round top, HIT/STAY bottom)
 - **Names + rooms:** pick a name (auto-uniquified), 6-char room code, password per room (blank = auto 4-char, embedded in the invite link).
 - **Reconnect = same seat:** the server issues a secret token per seat (kept in `localStorage`). Rejoin with it and you're back with the **same hand** — the server replays the latest host snapshot. No host action needed.
 - **Kick:** the host can kick anyone (lobby list or in-game Players panel, confirm first). Kicked players land back on home with the reason, and their name is banned for the room's lifetime.
+- **Same person, no approval:** token reconnects resume silently as before; if the token is gone (cleared storage, new browser), the server re-attaches the same offline seat by name + password — mid-game knocks are for strangers only. Knocks now also surface in the game view, not just the lobby.
 - **Player drops mid-game:** the host gets a card — **Wait** (seat reserved; rejoin auto-assigns) or **Drop & reset** (seat freed, engine busts/removes them, game continues).
 - **Host drops:** 10s grace to return; otherwise the **server picks the next host** (earliest-joined connected player), who restores the exact snapshot and continues. Old host returning late rejoins as a normal player.
 - **Mid-game joins:** policy per room — `host` (knock + approve → spectate until next round), `auto` (straight to spectate), `off` (closed).
