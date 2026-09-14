@@ -37,7 +37,7 @@ that runs in the HOST's browser. No P2P, no build step.
 ## Protocol (WS JSON, `t` field)
 Client→server: `create join start backToLobby toHost toPeer seatDecision
 joinDecision state getPass ping`.
-Server→client: `created joined room seats state intent peerMsg joinRequest
+Server→client: `created joined room seats state intent peerMsg dropped joinRequest
 joinWithdrawn peerDropped peerRejoined hostGone hostBack hostChanged
 roomPass waitingApproval joinDenied dropped error pong`.
 Pending mid-game joins live in `room.pending` keyed by requestId; the

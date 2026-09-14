@@ -126,6 +126,7 @@ type room struct {
 	settings  settings
 	seats     map[string]*seat
 	order     []string
+	kicked    map[string]bool // lowercased names banned for room lifetime
 	pending   map[string]*joinRequest
 	inGame    bool
 	snapshot  json.RawMessage
@@ -526,6 +527,7 @@ func (c *client) doCreate(m msg) {
 			settings: settings{Mode: mode, Target: target, Brutal: m.Brutal, AutoApprove: auto},
 			seats:    map[string]*seat{},
 			pending:  map[string]*joinRequest{},
+			kicked:   map[string]bool{},
 			touched:  time.Now(),
 		}
 		h.rooms[code] = r
@@ -603,6 +605,10 @@ func (c *client) doJoin(m msg) {
 		c.emit(msg{T: "joinDenied", Reason: "wrong password"})
 		return
 	}
+	if r.kicked[strings.ToLower(m.Name)] {
+		c.emit(msg{T: "joinDenied", Reason: "kicked by host"})
+		return
+	}
 	if len(r.seats) >= maxPlayers {
 		c.emit(msg{T: "joinDenied", Reason: "room is full"})
 		return
@@ -669,12 +675,21 @@ func (c *client) hostOnly(m msg) {
 		if !ok {
 			return
 		}
+		if m.PlayerID == c.seat.id && m.Decision != "wait" {
+			c.emit(msg{T: "error", Reason: "you cannot remove yourself"})
+			return
+		}
 		if m.Decision == "wait" {
 			s.waiting = true // seat reserved; auto-reassign on reconnect
 		} else {
-			// drop: free the seat. Host's engine marks them out via markLeft/removePlayer.
+			// drop/kick: free the seat. Host's engine marks them out via markLeft/removePlayer.
+			reason := "removed by host"
+			if m.Decision == "kick" {
+				r.kicked[strings.ToLower(s.name)] = true // banned for room lifetime
+				reason = "kicked by host"
+			}
 			if s.cl != nil {
-				r.sendToLocked(s, msg{T: "dropped", Reason: "removed by host"})
+				r.sendToLocked(s, msg{T: "dropped", Reason: reason})
 			}
 			delete(r.seats, m.PlayerID)
 			for i, id := range r.order {

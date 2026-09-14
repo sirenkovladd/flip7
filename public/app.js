@@ -4,7 +4,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.2.2';
+const APP_V = '0.2.3';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -87,7 +87,12 @@ function route(m) {
     case 'roomPass': S.pass = m.password; renderPass(); break;
     case 'waitingApproval': showHome(`Knocking… wait for the host to let you in (${esc(m.room)}).`); break;
     case 'joinDenied': showHome(`Join denied: ${esc(m.reason)}`); sessClear(); break;
-    case 'dropped': sessClear(); S.shouldRun = false; S.ws.close(); location.href = '/'; break;
+    case 'dropped':
+      sessClear();
+      S.room = null; S.snap = null; S.G = null; S.seats = []; S.dropped = []; S.joinReqs = [];
+      S.me = { id: null, token: null, name: S.me.name, isHost: false, spectator: false };
+      showHome(`Removed from the room (${esc(m.reason || 'by host')}). Rejoin only if they let you.`);
+      break;
     case 'error': toast(m.reason); break;
     case 'pong': break;
   }
@@ -265,7 +270,11 @@ function renderLobby() {
     `<li>${esc(s.name)} ${s.isHost ? '<span class="tag host">HOST</span>' : ''}` +
     `${s.spectator ? '<span class="tag spec">WATCH</span>' : ''}` +
     `${s.waiting ? '<span class="tag">WAITING</span>' : ''}` +
-    `${!s.connected ? '<span class="tag off">OFFLINE</span>' : ''}</li>`).join('');
+    `${!s.connected ? '<span class="tag off">OFFLINE</span>' : ''}` +
+    `${(S.me.isHost && s.id !== S.me.id) ? `<button data-kick="${s.id}" data-name="${esc(s.name)}" class="danger">Kick</button>` : ''}</li>`).join('');
+  $('seatList').querySelectorAll('[data-kick]').forEach((b) => {
+    b.onclick = () => kickSeat(b.dataset.kick, b.dataset.name);
+  });
   // Lobby buttons depend on match state: fresh → Start; break/pause → Resume;
   // scores present → New match offers an explicit reset. Scores are never reset otherwise.
   const snap = S.snap;
@@ -399,6 +408,23 @@ function renderGame() {
   log.innerHTML = (g.log || []).slice(-30).reverse().map((l) => `<div>${esc(l)}</div>`).join('');
 }
 
+// Engine-side removal shared by drop (offline) and kick (online).
+async function removeSeatLocal(id) {
+  if (!S.G) return true;
+  const eng = await engine();
+  try {
+    if (['turns', 'initialDeal'].includes(S.G.phase)) eng.markLeft(S.G, id);
+    else eng.removePlayer(S.G, id);
+  } catch (e) { toast(e.message); return false; }
+  return true;
+}
+async function kickSeat(id, name) {
+  if (!confirm(`Kick ${name}? They can't rejoin this room.`)) return;
+  if (!(await removeSeatLocal(id))) return;
+  send({ t: 'seatDecision', playerId: id, decision: 'kick' });
+  S.dropped = S.dropped.filter((d) => d.id !== id);
+  pumpAndBroadcast();
+}
 function renderNotices() {
   const box = $('noticePanel');
   let html = '';
@@ -414,17 +440,23 @@ function renderNotices() {
     b.onclick = async () => {
       const id = b.dataset.wait || b.dataset.drop;
       const wait = !!b.dataset.wait;
-      if (!wait && S.G) {
-        const eng = await engine();
-        try {
-          if (['turns', 'initialDeal'].includes(S.G.phase)) eng.markLeft(S.G, id);
-          else eng.removePlayer(S.G, id);
-        } catch (e) { toast(e.message); return; }
-      }
+      if (!wait && !(await removeSeatLocal(id))) return;
       send({ t: 'seatDecision', playerId: id, decision: wait ? 'wait' : 'drop' });
       S.dropped = S.dropped.filter((d) => d.id !== id);
       pumpAndBroadcast();
     };
+  });
+  // Host player list with kick (works on online players, unlike the drop box above).
+  const pp = $('playersPanel');
+  if (!S.me.isHost) { pp.hidden = true; return; }
+  pp.hidden = false;
+  $('gameSeatList').innerHTML = S.seats.map((s) =>
+    `<li>${esc(s.name)} ${s.isHost ? '<span class="tag host">HOST</span>' : ''}` +
+    `${s.spectator ? '<span class="tag spec">WATCH</span>' : ''}` +
+    `${!s.connected ? '<span class="tag off">OFFLINE</span>' : ''}` +
+    `${(s.id !== S.me.id) ? `<button data-kick="${s.id}" data-name="${esc(s.name)}" class="danger">Kick</button>` : ''}</li>`).join('');
+  $('gameSeatList').querySelectorAll('[data-kick]').forEach((b) => {
+    b.onclick = () => kickSeat(b.dataset.kick, b.dataset.name);
   });
 }
 
