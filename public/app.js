@@ -4,7 +4,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.2.0';
+const APP_V = '0.2.1';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -95,7 +95,10 @@ function route(m) {
 
 function onRoom(m) {
   S.seats = m.seats; S.settings = m.settings; S.inGame = m.inGame;
-  if (m.snapshot && !S.me.isHost) {
+  if (!m.inGame && !m.snapshot) {
+    // Back to lobby: no game to render anymore.
+    S.snap = null; S.choice = {};
+  } else if (m.snapshot && !S.me.isHost) {
     // Followers track the server's latest snapshot.
     S.snap = m.snapshot; S.seq = m.seq || 0;
   } else if (m.snapshot && S.me.isHost && (m.seq || 0) > S.hostSeq) {
@@ -375,6 +378,8 @@ function renderGame() {
 
   $('nextRoundBtn').hidden = !(S.me.isHost && (g.phase === 'roundEnd' || g.phase === 'gameOver'));
   $('nextRoundBtn').textContent = g.phase === 'gameOver' ? 'New game' : 'Next round';
+  $('toLobbyBtn').hidden = !S.me.isHost;
+  $('leaveGameBtn').hidden = S.me.isHost;
 
   renderChoice();
   renderNotices();
@@ -546,7 +551,13 @@ function init() {
   $('hitBtn').onclick = () => doOp({ op: 'hit' });
   $('stayBtn').onclick = () => doOp({ op: 'stay' });
   $('nextRoundBtn').onclick = startGame;
-  $('toLobbyBtn').onclick = () => send({ t: 'backToLobby' });
+  $('toLobbyBtn').onclick = () => {
+    // Host sends everyone back: drop local game at once, server echo confirms.
+    S.G = null; S.snap = null; S.choice = {}; S.dropped = [];
+    send({ t: 'backToLobby' });
+    render();
+  };
+  $('leaveGameBtn').onclick = () => { sessClear(); location.href = '/'; };
   $('tableToggle').onchange = (e) => { S.tableMode = e.target.checked; render(); };
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   connect();

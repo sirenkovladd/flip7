@@ -3,7 +3,7 @@
 // Cache-first app shell (instant second load + offline), network-first
 // for nothing else — game data flows over WS and must never be cached.
 // sw.js itself is served `no-cache` so version bumps roll out.
-const CACHE = 'flip7-v0.2.0';
+const CACHE = 'flip7-v0.2.1';
 const SHELL = [
   '/',
   '/index.html',

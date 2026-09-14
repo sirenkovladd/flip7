@@ -69,7 +69,7 @@ type msg struct {
 	You      *seatInfo  `json:"you,omitempty"`
 	Seats    []seatInfo `json:"seats,omitempty"`
 	Settings settings   `json:"settings,omitempty"`
-	InGame   bool       `json:"inGame,omitempty"`
+	InGame   bool       `json:"inGame"` // always present: followers match on === false
 	HostID   string     `json:"hostId,omitempty"`
 	HostName string     `json:"hostName,omitempty"`
 }
@@ -661,6 +661,8 @@ func (c *client) hostOnly(m msg) {
 		r.broadcastLocked(r.roomMsgLocked(nil))
 	case "backToLobby":
 		r.inGame = false
+		r.snapshot = nil // drop the finished game: followers must render lobby, not stale cards
+		r.seq = 0
 		r.broadcastLocked(r.roomMsgLocked(nil))
 	case "seatDecision":
 		s, ok := r.seats[m.PlayerID]
