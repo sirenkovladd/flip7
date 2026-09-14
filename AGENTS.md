@@ -50,8 +50,10 @@ waiting socket is parked on `client.pendingReq` until decided.
 - `public/sw.js` — versioned shell cache (`flip7-v0.1.0` — bump together
   with `AppVersion` + `APP_V`)
 - `game/deck.js` — builders + counts (vengeance 92+6+10, classic 79+6+9)
-- `game/engine.js` — full rules + roster + snapshot/restore
-- `test/engine.test.js` — 15 tests
+- `game/engine.js` — full rules + roster + snapshot/restore + `runCont` continuations (nested JOM/Flip chains never drop cards or turns)
+- `test/engine.test.js` — 15 rules tests
+- `test/stress.test.js` — 6 big-lobby tests (12/18p full games, per-round card conservation incl. in-flight queue cards, reshuffle)
+- `public/vendor/qrcode.js` — vendored MIT QR lib (no CDN); lobby renders invite-link QR when password is known
 
 ## Versioning
 Bump `AppVersion` (main.go) + `CACHE` (sw.js) + `APP_V` (`?v=` in

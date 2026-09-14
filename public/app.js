@@ -4,7 +4,7 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.1.1';
+const APP_V = '0.2.0';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -286,6 +286,24 @@ function renderLobby() {
 
 function renderPass() {
   $('passLine').textContent = S.pass ? `password: ${S.pass}` : '';
+  renderQR();
+}
+function inviteLink() {
+  return `${location.origin}/?r=${S.room}${S.pass ? `&p=${encodeURIComponent(S.pass)}` : ''}`;
+}
+function renderQR() {
+  const wrap = $('qrWrap');
+  if (!S.room || !S.pass || typeof qrcode === 'undefined') { wrap.hidden = true; return; }
+  const link = inviteLink();
+  if (S._qrLink === link) { wrap.hidden = false; return; }
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(link);
+    qr.make();
+    $('qrBox').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    S._qrLink = link;
+    wrap.hidden = false;
+  } catch { wrap.hidden = true; }
 }
 
 function cardHTML(c, facedown) {
@@ -491,7 +509,7 @@ function renderSwapPicker(body, ch) {
 function init() {
   const q = new URLSearchParams(location.search);
   if (q.get('r')) $('codeInput').value = q.get('r').toUpperCase();
-  if (q.get('p')) $('joinPassInput').value = q.get('p');
+  if (q.get('p')) { $('joinPassInput').value = q.get('p'); S.pass = q.get('p'); }
   const s = sessLoad();
   if (s && s.room) {
     $('rejoinHint').hidden = false;
@@ -518,7 +536,7 @@ function init() {
     send({ t: 'join', room: S.room, name, password: $('joinPassInput').value.trim() });
   };
   $('copyLinkBtn').onclick = async () => {
-    const link = `${location.origin}/?r=${S.room}${S.pass ? `&p=${encodeURIComponent(S.pass)}` : ''}`;
+    const link = inviteLink();
     try { await navigator.clipboard.writeText(link); toast('Invite link copied!'); }
     catch { prompt('Copy invite link:', link); }
   };

@@ -27,7 +27,7 @@ go run .              # http://localhost:3000  (PORT=8080 go run .)
 npm test              # engine rules tests (15 green)
 ```
 
-Same-room flow: **Create** (mode/target/brutal/password/mid-game-join policy) → **share link** (code + auto password inside) → players **Join** → host **Starts**.
+Same-room flow: **Create** (mode/target/brutal/password/mid-game-join policy) → **share link or lobby QR** (code + auto password inside) → players **Join** → host **Starts**.
 Default view = **your cards only** (big center, deck/round top, HIT/STAY bottom). Toggle **Table** for one shared screen (all hands). Spectators always see the table.
 
 ## Sessions, drops & host migration (all server-side)
@@ -48,15 +48,14 @@ Default view = **your cards only** (big center, deck/round top, HIT/STAY bottom)
 
 - `main.go` — HTTP + cached static + `/api/health` + `/ws`
 - `rooms.go` — rooms, seats/tokens, relay, presence, 10s host election, join approval
-- `public/` — PWA (`index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.webmanifest`, `icons/`)
+- `public/` — PWA (`index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.webmanifest`, `icons/`, `vendor/qrcode.js` — MIT QR lib, vendored, works offline)
 - `game/` — `deck.js`, `engine.js` (pure, runs in HOST browser + `npm test`)
-- `test/engine.test.js` — rules regression suite
+- `test/engine.test.js` — rules regression suite (15 tests)
+- `test/stress.test.js` — big-lobby suite (6 tests): full random games at 12/18 players, card-conservation every round, reshuffle path
 
-## Improvements (suggested, not built)
+## Next up (agreed)
 
-1. Brutal −15 choice UI (currently auto +15 self).
-2. Real QR code in lobby (add a tiny vendored QR lib — no CDN, keep offline).
-3. Second-deck/18+ stress test + deck-exhaustion end (`deckOut` path).
-4. Bot players to fill seats.
-5. Game history / rematch stats in `localStorage`.
-6. `wss` reverse-proxy snippet (Caddy/nginx) for play over the internet.
+1. Card animations — dealing movement from deck, bust with delay + highlight instead of instant.
+2. Better reconnect UX.
+
+Out of scope for now: Brutal −15 picker (auto +15 stays), bots, internet/`wss` setup, history stats.

@@ -176,9 +176,9 @@ export function dealNext(g) {
     advanceDeal(g);
   } else if (card.kind === 'modifier') {
     if (g.mode === 'classic') { p.mods.push(card); log(g, `${p.name} keeps ${card.label}`); advanceDeal(g); }
-    else g.pending = { kind: 'modifierChoice', holderId: p.id, card, after: 'deal' };
+    else g.pending = { kind: 'modifierChoice', holderId: p.id, card, cont: { after: 'deal' } };
   } else {
-    g.pending = { kind: 'actionChoice', holderId: p.id, card, after: 'deal' };
+    g.pending = { kind: 'actionChoice', holderId: p.id, card, cont: { after: 'deal' } };
   }
   return { ok: true, pending: g.pending };
 }
@@ -266,9 +266,9 @@ export function requestHit(g, playerId) {
     advanceTurn(g);
   } else if (card.kind === 'modifier') {
     if (g.mode === 'classic') { p.mods.push(card); log(g, `${p.name} keeps ${card.label}`); advanceTurn(g); }
-    else g.pending = { kind: 'modifierChoice', holderId: p.id, card, after: 'turn' };
+    else g.pending = { kind: 'modifierChoice', holderId: p.id, card, cont: { after: 'turn' } };
   } else {
-    g.pending = { kind: 'actionChoice', holderId: p.id, card, after: 'turn' };
+    g.pending = { kind: 'actionChoice', holderId: p.id, card, cont: { after: 'turn' } };
   }
   return { ok: true, pending: g.pending };
 }
@@ -325,12 +325,8 @@ export function resolveModifierChoice(g, { holderId, targetId }) {
   const t = getPlayer(g, targetId);
   t.mods.push(pend.card);
   log(g, `${getPlayer(g, holderId).name} gives ${pend.card.label} → ${t.name}`);
-  const after = pend.after;
-  const queue = pend.queue || null;
-  g.pending = queue ? { kind: 'flipQueue', targetId: queue.targetId, queue: queue.rest } : null;
-  if (g.pending && g.pending.queue.length === 0) { g.pending = null; finishAfterChoice(g, after); }
-  else if (!g.pending) finishAfterChoice(g, after);
-  else processFlipQueue(g);
+  g.pending = null;
+  runCont(g, pend.cont);
   return { ok: true };
 }
 
@@ -342,19 +338,25 @@ export function resolveActionChoice(g, sel) {
   if (pend.holderId !== holderId) throw new Error('wrong holder');
   const action = pend.card.action;
   const holder = getPlayer(g, holderId);
-  const after = pend.after;
-  const queue = pend.queue || null;
+  const hcont = pend.cont || {};
   g.pending = null; // cleared; nested effects (Flip/JOM draws) may set a fresh one
 
   const needTarget = ['freeze', 'flipThree', 'justOneMore', 'flipFour', 'steal', 'discard'].includes(action);
   let targetId = sel.targetId || holderId;
   if (action === 'swap') {
+    // No two cards on different lines yet (e.g. early initial deal) → fizzle.
+    const faces = allFaceUpCards(g);
+    const owners = new Set(faces.map((f) => f.ownerId));
+    if (faces.length < 2 || owners.size < 2) {
+      g.discard.push(pend.card);
+      log(g, `${holder.name}'s Swap fizzles (nothing to swap) → discarded`);
+      runCont(g, hcont);
+      return { ok: true };
+    }
     applySwap(g, holderId, sel);
-    g.pending = queue ? { kind: 'flipQueue', targetId: queue.targetId, queue: queue.rest } : null;
+    g.discard.push(pend.card); // action is consumed
     if (g.phase === 'roundEnd' || g.phase === 'gameOver') return { ok: true };
-    if (g.pending && g.pending.queue.length === 0) { g.pending = null; finishAfterChoice(g, after); }
-    else if (!g.pending) finishAfterChoice(g, after);
-    else processFlipQueue(g);
+    runCont(g, hcont);
     return { ok: true };
   }
   if (action === 'secondChance') {
@@ -364,16 +366,19 @@ export function resolveActionChoice(g, sel) {
       g.discard.push(pend.card); log(g, `${pend.card.label} discarded (no target)`);
     } else {
       getPlayer(g, targetId).shield = true;
+      g.discard.push(pend.card); // shield is a flag; the card itself is consumed
       log(g, `${holder.name} gives 2nd Chance → ${getPlayer(g, targetId).name}`);
     }
-    return finishActionCommon(g, after, queue, pend);
+    runCont(g, hcont);
+    return { ok: true };
   }
   const tgts = validActionTargets(g, action, holderId);
   if (needTarget && !tgts.includes(targetId)) {
     // Special: steal/discard with no cards → discard action
     g.discard.push(pend.card);
     log(g, `${holder.name}'s ${pend.card.label} fizzles (no target) → discarded`);
-    return finishActionCommon(g, after, queue, pend);
+    runCont(g, hcont);
+    return { ok: true };
   }
   g.discard.push(pend.card); // actions are consumed
   switch (action) {
@@ -383,52 +388,67 @@ export function resolveActionChoice(g, sel) {
       log(g, `${holder.name} FREEZES ${t.name}`);
       break;
     }
-    case 'flipThree': applyFlipDraws(g, targetId, 3); break;
-    case 'justOneMore': applyJustOneMore(g, targetId); break;
-    case 'flipFour': applyFlipDraws(g, targetId, 4); break;
+    case 'flipThree': applyFlipDraws(g, targetId, 3, hcont); break;
+    case 'justOneMore': applyJustOneMore(g, targetId, hcont); break;
+    case 'flipFour': applyFlipDraws(g, targetId, 4, hcont); break;
     case 'steal': applySteal(g, holderId, targetId, sel.cardUid); break;
     case 'discard': applyDiscard(g, holderId, targetId, sel.cardUid); break;
     default: throw new Error('unknown action ' + action);
   }
   if (g.phase === 'roundEnd' || g.phase === 'gameOver') { g.pending = null; return { ok: true }; }
-  // nested pending (from flip draws / jom draws) takes precedence
-  if (g.pending && g.pending.kind !== 'actionChoice' && g.pending.kind !== 'modifierChoice') {
-    // flipQueue already set by applyFlipDraws
-    return { ok: true };
-  }
-  if (g.pending) return { ok: true }; // nested choice awaiting UI
-  return finishActionCommon(g, after, queue, pend);
-}
-function finishActionCommon(g, after, queue, pend) {
-  g.pending = queue ? { kind: 'flipQueue', targetId: queue.targetId, queue: queue.rest } : null;
-  if (g.pending && g.pending.queue.length === 0) { g.pending = null; finishAfterChoice(g, after); }
-  else if (!g.pending) finishAfterChoice(g, after);
-  else processFlipQueue(g);
+  if (g.pending) return { ok: true }; // nested choice awaiting UI (chains back via cont)
+  runCont(g, hcont);
   return { ok: true };
 }
-function finishAfterChoice(g, after) {
+// ---- continuations ----
+// A cont resumes suspended flow after a choice resolves:
+//   { after }                              — fire after ('deal'|'turn'|jomStay), done
+//   { frame:{targetId, cards, cont} }       — pop next queued Flip card, else run frame.cont
+//   { after, next }                        — fire after, then run parent cont (nested JOM/Flip)
+// Every card drawn from the deck lives in exactly one of: deck, discard,
+// a hand/mods, a queued frame, or an unresolved pending — never dropped.
+function runCont(g, cont) {
+  let c = cont, guard = 0;
+  while (c && guard++ < 500) {
+    if (g.phase !== 'turns' && g.phase !== 'initialDeal') return;
+    if (c.frame && c.frame.cards.length > 0) { popFrame(g, c); return; }
+    if (c.after !== undefined) fireAfter(g, c.after);
+    if (g.phase !== 'turns' && g.phase !== 'initialDeal') return;
+    c = (c.frame && c.frame.cont) || c.next || null;
+  }
+}
+function fireAfter(g, after) {
   if (g.phase !== 'turns' && g.phase !== 'initialDeal') return;
   if (after === 'deal') advanceDeal(g);
   else if (after === 'turn') advanceTurn(g);
-  else if (after === 'flipQueue') processFlipQueue(g);
-  else if (after && after.type === 'jomStay') {
-    const t = getPlayer(g, after.targetId);
-    if (t.status === 'active' && g.phase === 'turns') {
-      // JOM forces stay (even with Zero)
-      t.status = 'stayed';
-      log(g, `${t.name} stays (Just One More)`);
-      if (!checkRoundEnd(g)) { /* turn pointer may be stale; advance from current */ advanceTurnFrom(g, t.id); }
-    }
+  else if (after && after.type === 'jomStay') doJomStay(g, after.targetId);
+}
+function doJomStay(g, targetId) {
+  const t = getPlayer(g, targetId);
+  if (t.status === 'active' && g.phase === 'turns') {
+    // JOM forces stay (even with Zero)
+    t.status = 'stayed';
+    log(g, `${t.name} stays (Just One More)`);
+    checkRoundEnd(g);
   }
 }
-function advanceTurnFrom(g, stayedId) {
-  // after a non-turn player (JOM/Flip target) stays, keep turn pointer sane: just check end, don't move current turn
-  if (checkRoundEnd(g)) return;
+function popFrame(g, cont) {
+  const f = cont.frame;
+  const [card, ...rest] = f.cards;
+  const nextCont = rest.length > 0
+    ? { frame: { targetId: f.targetId, cards: rest, cont: f.cont } }
+    : f.cont; // drained: continue parent continuation directly
+  if (card.kind === 'modifier') {
+    g.pending = { kind: 'modifierChoice', holderId: f.targetId, card, cont: nextCont };
+  } else {
+    g.pending = { kind: 'actionChoice', holderId: f.targetId, card, cont: nextCont };
+  }
 }
 
 // ---- action effects ----
-function applyJustOneMore(g, targetId) {
+function applyJustOneMore(g, targetId, hcont) {
   const t = getPlayer(g, targetId);
+  const nested = { after: { type: 'jomStay', targetId }, next: hcont || null };
   if (t.status === 'busted') return;
   const card = drawTop(g);
   if (!card) return;
@@ -446,14 +466,14 @@ function applyJustOneMore(g, targetId) {
       t.mods.push(card);
       if (t.status === 'active') { t.status = 'stayed'; log(g, `${t.name} stays (Just One More)`); }
     } else {
-      g.pending = { kind: 'modifierChoice', holderId: t.id, card, after: { type: 'jomStay', targetId: t.id } };
+      g.pending = { kind: 'modifierChoice', holderId: t.id, card, cont: nested };
     }
   } else {
-    g.pending = { kind: 'actionChoice', holderId: t.id, card, after: { type: 'jomStay', targetId: t.id } };
+    g.pending = { kind: 'actionChoice', holderId: t.id, card, cont: nested };
   }
 }
 
-function applyFlipDraws(g, targetId, n) {
+function applyFlipDraws(g, targetId, n, hcont) {
   const t = getPlayer(g, targetId);
   if (!t || t.status === 'busted') return;
   const queued = [];
@@ -480,20 +500,8 @@ function applyFlipDraws(g, targetId, n) {
     }
   }
   if (queued.length > 0) {
-    g.pending = { kind: 'flipQueue', targetId: t.id, queue: queued };
-    processFlipQueue(g);
-  }
-}
-function processFlipQueue(g) {
-  const pend = g.pending;
-  if (!pend || pend.kind !== 'flipQueue') return;
-  if (pend.queue.length === 0) { g.pending = null; return; }
-  const next = pend.queue[0];
-  const rest = pend.queue.slice(1);
-  if (next.kind === 'modifier') {
-    g.pending = { kind: 'modifierChoice', holderId: pend.targetId, card: next, after: 'flipQueue', queue: { targetId: pend.targetId, rest } };
-  } else {
-    g.pending = { kind: 'actionChoice', holderId: pend.targetId, card: next, after: 'flipQueue', queue: { targetId: pend.targetId, rest } };
+    // queued cards resolve in drawn order; then the holder's level continues
+    runCont(g, { frame: { targetId: t.id, cards: queued, cont: hcont || null } });
   }
 }
 

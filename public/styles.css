@@ -40,6 +40,8 @@ button.danger { background:var(--bad); color:#fff; border:none; }
 .seats .tag.off { background:#7f1d1d; }
 .seats .tag.spec { background:#0e7490; }
 .seats li button { margin-left:auto; font-size:.8rem; padding:.3rem .6rem; }
+.qr { display:flex; justify-content:center; margin:.4rem 0; }
+.qr svg { width:180px; height:180px; background:#fff; border-radius:.6rem; padding:6px; }
 .hand { display:flex; flex-wrap:wrap; gap:.5rem; min-height:3rem; }
 .hand.big .card { font-size:1.5rem; min-width:3.4rem; min-height:4.6rem; }
 .card { background:#f8fafc; color:#0f172a; border-radius:.6rem; padding:.4rem .5rem; font-weight:800; text-align:center; min-width:2.6rem; min-height:3.4rem; display:flex; flex-direction:column; justify-content:center; }
