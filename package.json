@@ -1,10 +1,10 @@
 {
   "name": "flip7-vengeance",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "type": "module",
   "description": "FLIP 7 With a Vengeance + Classic — browser party game (Go server, PWA client, shared JS engine)",
   "scripts": {
     "start": "go run .",
-    "test": "node --test test/engine.test.js test/stress.test.js"
+    "test": "node --test test/engine.test.js test/stress.test.js test/fx.test.js"
   }
 }

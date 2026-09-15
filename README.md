@@ -57,9 +57,15 @@ Default view = **your cards only** (big center, deck/round top, HIT/STAY bottom)
 - `test/engine.test.js` — rules regression suite (15 tests)
 - `test/stress.test.js` — big-lobby suite (6 tests): full random games at 12/18 players, card-conservation every round, reshuffle path
 
+## Motion
+
+Dealt cards fly from the deck pile, busts shake + flash red ~1.2s before
+flipping face-down, stays tuck, totals count up, your turn pulses — all
+cosmetic (state applies instantly, input never blocked), scoped to your
+own hand, silent, and disabled under `prefers-reduced-motion`.
+
 ## Next up (agreed)
 
-1. Card animations — dealing movement from deck, bust with delay + highlight instead of instant.
-2. Better reconnect UX.
+1. Better reconnect UX.
 
 Out of scope for now: Brutal −15 picker (auto +15 stays), bots, internet/`wss` setup, history stats.

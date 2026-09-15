@@ -3,8 +3,10 @@
 // + UI (personal view default, Table toggle). No P2P: WS to Go server.
 'use strict';
 
+import * as FX from '/fx.js?v=0.3.0';
+
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.2.4';
+const APP_V = '0.3.0';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -72,7 +74,7 @@ function route(m) {
       break;
     case 'room': onRoom(m); break;
     case 'seats': S.seats = m.seats; syncMe(); render(); break;
-    case 'state': S.snap = m.snapshot; S.seq = m.seq; render(); break;
+    case 'state': setSnap(m.snapshot); S.seq = m.seq; render(); break;
     case 'intent': onIntent(m); break; // host only
     case 'peerMsg': onPeerMsg(m); break;
     case 'joinRequest': S.joinReqs.push({ id: m.requestId, name: m.fromName }); render(); break;
@@ -103,7 +105,7 @@ function onRoom(m) {
   if (!m.inGame) S.choice = {};
   if (m.snapshot && !S.me.isHost) {
     // Followers track the server's latest snapshot.
-    S.snap = m.snapshot; S.seq = m.seq || 0;
+    setSnap(m.snapshot); S.seq = m.seq || 0;
   } else if (m.snapshot && S.me.isHost && (m.seq || 0) > S.hostSeq) {
     // Defensive: host fell behind (e.g. missed its own broadcast).
     // Adopt the newer snapshot rather than staying stuck.
@@ -118,9 +120,10 @@ async function adoptSnapshot(snap, seq) {
   const eng = await engine();
   S.G = eng.restore(snap);
   S.hostSeq = seq;
-  S.snap = window.__E_snapshot(S.G);
+  setSnap(window.__E_snapshot(S.G));
   render();
 }
+function setSnap(s) { S.prevSnap = S.snap; S.snap = s; }
 function syncMe() {
   const me = S.seats.find((s) => s.id === S.me.id);
   if (me) { S.me.isHost = me.isHost; S.me.spectator = me.spectator; }
@@ -169,11 +172,9 @@ async function pumpAndBroadcast() {
     let guard = 0;
     while (S.G.phase === 'initialDeal' && !S.G.pending && guard++ < 500) eng.dealNext(S.G);
   } catch (e) { console.warn('pump', e); }
-  S.snap = window.__E_snapshot(S.G);
+  setSnap(window.__E_snapshot(S.G));
   render();
   broadcast();
-  // keep local snap seq aligned
-  S.snap = window.__E_snapshot(S.G);
 }
 
 function peerError(to, err) {
@@ -331,7 +332,7 @@ function renderQR() {
 }
 
 function cardHTML(c, facedown) {
-  if (facedown) return `<div class="card facedown">🂠</div>`;
+  if (facedown) return `<div class="card facedown" data-uid="${c.uid || ''}">🂠</div>`;
   let cls = 'card', sub = '';
   if (c.kind === 'modifier') { cls += ' mod'; }
   else if (c.kind === 'action') { cls += ' act'; }
@@ -340,11 +341,14 @@ function cardHTML(c, facedown) {
     else if (c.special === 'unlucky7') { cls += ' unlucky'; sub = '<small>UNLUCKY</small>'; }
     else if (c.special === 'lucky13') { cls += ' lucky'; sub = '<small>LUCKY</small>'; }
   }
-  return `<div class="${cls}">${esc(c.label)}${sub}</div>`;
+  return `<div class="${cls}" data-uid="${c.uid || ''}">${esc(c.label)}${sub}</div>`;
 }
 
 function renderGame() {
   const g = S.snap;
+  S.fxGen = (S.fxGen || 0) + 1;
+  clearTimeout(S.bustT); // a fresher snapshot cancels staged drama
+  const evts = (S.prevSnap && S.me.id) ? FX.diffHands(S.prevSnap, S.snap, S.me.id) : [];
   $('modeBadge').hidden = false;
   $('modeBadge').textContent = g.mode === 'classic' ? 'Classic' : 'Vengeance';
   $('roundLine').textContent = `Round ${g.round}`;
@@ -355,8 +359,9 @@ function renderGame() {
   const turn = g.phase === 'turns' ? (g.players || [])[g.turnIdx] : null;
   $('turnLine').textContent = turn ? `▶ ${turn.name}` : (g.phase === 'roundEnd' ? 'Round over' : g.phase === 'gameOver' ? 'Game over 🏆' : 'Dealing…');
   $('scoreLine').innerHTML = (g.players || []).map((p) =>
-    `<span>${esc(p.name)}: <b>${p.total}</b>${p.roundScore != null && g.phase !== 'turns' && g.phase !== 'initialDeal' ? ` (+${p.roundScore})` : ''}` +
+    `<span>${esc(p.name)}: <b data-pid="${p.id}">${p.total}</b>${p.roundScore != null && g.phase !== 'turns' && g.phase !== 'initialDeal' ? ` (+${p.roundScore})` : ''}` +
     `${(g.winners || []).includes(p.id) ? ' 🏆' : ''}</span>`).join('');
+  if (S.prevSnap) FX.tweenTotals($('scoreLine'), FX.diffTotals(S.prevSnap, S.snap));
 
   const me = mePlayer();
   const forcedTable = S.me.spectator || !me;
@@ -376,9 +381,35 @@ function renderGame() {
       me.status === 'stayed' ? 'Stayed — locked in (still targetable!).' :
       g.phase !== 'turns' ? '' :
       zero && g.mode === 'vengeance' ? 'ZERO: you must HIT.' : (turn && turn.id === me.id ? 'Your turn!' : `Waiting for ${turn ? turn.name : '…'}`);
-    const down = me.status === 'busted';
-    $('myCards').innerHTML = (me.hand || []).map((c) => cardHTML(c, down)).join('') || '<span class="hint">no cards yet</span>';
-    $('myMods').innerHTML = (me.mods || []).map((c) => cardHTML(c, down)).join('');
+    // Bust drama: face-up shake ~1.2s, then the normal face-down render.
+    // Purely cosmetic — state is already busted, input already hidden.
+    const bkey = me.status === 'busted' ? `${g.round}:${(me.hand || []).map((c) => c.uid).join(',')}` : null;
+    const bustNew = bkey && evts.some((e) => e.type === 'bust') && S.bustAck !== bkey && !FX.reducedMotion();
+    if (bustNew) {
+      S.bustAck = bkey;
+      const gen = S.fxGen;
+      $('myCards').innerHTML = (me.hand || []).map((c) => cardHTML(c, false)).join('');
+      $('myMods').innerHTML = (me.mods || []).map((c) => cardHTML(c, false)).join('');
+      $('myCards').classList.add('busting');
+      const dup = FX.findDuplicateUid(me.hand || []);
+      const dupEl = dup && $('myCards').querySelector(`[data-uid="${dup}"]`);
+      if (dupEl) dupEl.classList.add('shake');
+      S.bustT = setTimeout(() => { if (S.fxGen === gen) render(); }, 1250);
+    } else {
+      $('myCards').classList.remove('busting');
+      const down = me.status === 'busted';
+      $('myCards').innerHTML = (me.hand || []).map((c) => cardHTML(c, down)).join('') || '<span class="hint">no cards yet</span>';
+      $('myMods').innerHTML = (me.mods || []).map((c) => cardHTML(c, down)).join('');
+      // enter motion for fresh cards + soft cues for stay/loss
+      const dealtU = evts.filter((e) => e.type === 'dealt').flatMap((e) => e.cards.map((c) => c.uid));
+      const modU = evts.filter((e) => e.type === 'mod').flatMap((e) => e.cards.map((c) => c.uid));
+      FX.playDealt($('myCards'), dealtU, $('deckLine'));
+      FX.playDealt($('myMods'), modU, $('deckLine'));
+      if (evts.some((e) => e.type === 'stay') || evts.some((e) => e.type === 'lost')) {
+        $('myCards').classList.add('cue');
+        setTimeout(() => $('myCards').classList.remove('cue'), 450);
+      }
+    }
   }
 
   if (showTable) {
@@ -396,6 +427,7 @@ function renderGame() {
   $('hitBtn').style.display = canAct ? '' : 'none';
   $('stayBtn').style.display = canAct && !zero ? '' : 'none';
   document.querySelector('.actionbar').style.display = canAct ? '' : 'none';
+  $('statusPanel').classList.toggle('myturn', !!canAct);
 
   $('nextRoundBtn').hidden = !(S.me.isHost && (g.phase === 'roundEnd' || g.phase === 'gameOver'));
   $('nextRoundBtn').textContent = g.phase === 'gameOver' ? 'New game' : 'Next round';

@@ -53,6 +53,15 @@ button.danger { background:var(--bad); color:#fff; border:none; }
 .card.lucky { background:#14532d; color:#fff; }
 .card.facedown { background:#334155; color:#64748b; }
 .turn { color:var(--accent); font-weight:700; }
+/* ---- fx: cosmetic motion only (game state never waits for it) ---- */
+@keyframes fx-shake { 10%,90%{transform:translateX(-2px)} 20%,80%{transform:translateX(4px)} 30%,50%,70%{transform:translateX(-7px)} 40%,60%{transform:translateX(7px)} }
+.card.shake { animation: fx-shake .55s ease-in-out 2; border:3px solid var(--bad); }
+.hand.busting .card { box-shadow:0 0 18px rgba(239,68,68,.85); }
+@keyframes fx-cue { 0%{filter:brightness(1)} 40%{filter:brightness(1.5)} 100%{filter:brightness(1)} }
+.hand.cue { animation: fx-cue .45s ease-out; }
+@keyframes fx-myturn { 0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,0)} 50%{box-shadow:0 0 0 6px rgba(56,189,248,.35)} }
+#statusPanel.myturn { animation: fx-myturn 1.4s ease-in-out infinite; border:1px solid var(--accent); }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
 .scores { display:flex; flex-wrap:wrap; gap:.4rem; font-size:.85rem; margin-top:.4rem; }
 .scores span { background:#020617; border-radius:.5rem; padding:.2rem .5rem; }
 .actionbar { display:flex; gap:.6rem; position:sticky; bottom:0; padding:.6rem 0 calc(.6rem + env(safe-area-inset-bottom)); background:linear-gradient(transparent, var(--bg) 30%); }

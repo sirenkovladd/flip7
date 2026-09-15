@@ -48,7 +48,10 @@ waiting socket is parked on `client.pendingReq` until decided.
 - `rooms.go` — hub/rooms/seats, relay, presence, host election, approvals
 - `public/app.js` — lobby/QR-link, personal/table views, HIT/STAY bar,
   staged Swap/Steal/Discard pickers, drop/wait + approval dialogs,
-  host-takeover restore
+  host-takeover restore, fx hooks (prev-snapshot diff)
+- `public/fx.js` — cosmetic motion only: diffHands/diffTotals (pure,
+  unit-tested) + fly-in clones, bust shake, total tweens. Never blocks
+  input; `prefers-reduced-motion` disables all
 - `public/sw.js` — versioned shell cache (`flip7-v0.1.0` — bump together
   with `AppVersion` + `APP_V`)
 - `game/deck.js` — builders + counts (vengeance 92+6+10, classic 79+6+9)
