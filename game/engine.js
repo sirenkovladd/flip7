@@ -353,8 +353,13 @@ export function resolveActionChoice(g, sel) {
       runCont(g, hcont);
       return { ok: true };
     }
-    applySwap(g, holderId, sel);
-    g.discard.push(pend.card); // action is consumed
+    try {
+      applySwap(g, holderId, sel);
+    } catch (e) {
+      // Stale pick (victim busted/emptied mid-choice): fizzle, never stuck.
+      log(g, `${holder.name}'s Swap fizzles (${e.message})`);
+    }
+    g.discard.push(pend.card); // consumed either way — never leaks, never stuck
     if (g.phase === 'roundEnd' || g.phase === 'gameOver') return { ok: true };
     runCont(g, hcont);
     return { ok: true };
@@ -380,20 +385,35 @@ export function resolveActionChoice(g, sel) {
     runCont(g, hcont);
     return { ok: true };
   }
-  g.discard.push(pend.card); // actions are consumed
-  switch (action) {
-    case 'freeze': {
-      const t = getPlayer(g, targetId);
-      t.status = 'stayed';
-      log(g, `${holder.name} FREEZES ${t.name}`);
-      break;
+  g.discard.push(pend.card); // actions are consumed up front
+  try {
+    switch (action) {
+      case 'freeze': {
+        const t = getPlayer(g, targetId);
+        t.status = 'stayed';
+        log(g, `${holder.name} FREEZES ${t.name}`);
+        break;
+      }
+      case 'flipThree': applyFlipDraws(g, targetId, 3, hcont); break;
+      case 'justOneMore': applyJustOneMore(g, targetId, hcont); break;
+      case 'flipFour': applyFlipDraws(g, targetId, 4, hcont); break;
+      case 'steal': {
+        const v = getPlayer(g, targetId);
+        if (v.status === 'busted') throw new Error(`${v.name} already busted`);
+        applySteal(g, holderId, targetId, sel.cardUid);
+        break;
+      }
+      case 'discard': {
+        const v = getPlayer(g, targetId);
+        if (v.status === 'busted') throw new Error(`${v.name} already busted`);
+        applyDiscard(g, holderId, targetId, sel.cardUid);
+        break;
+      }
+      default: throw new Error('unknown action ' + action);
     }
-    case 'flipThree': applyFlipDraws(g, targetId, 3, hcont); break;
-    case 'justOneMore': applyJustOneMore(g, targetId, hcont); break;
-    case 'flipFour': applyFlipDraws(g, targetId, 4, hcont); break;
-    case 'steal': applySteal(g, holderId, targetId, sel.cardUid); break;
-    case 'discard': applyDiscard(g, holderId, targetId, sel.cardUid); break;
-    default: throw new Error('unknown action ' + action);
+  } catch (e) {
+    // Stale pick (victim busted/emptied mid-choice): fizzle, never stuck, never leak.
+    log(g, `${holder.name}'s ${pend.card.label} fizzles (${e.message})`);
   }
   if (g.phase === 'roundEnd' || g.phase === 'gameOver') { g.pending = null; return { ok: true }; }
   if (g.pending) return { ok: true }; // nested choice awaiting UI (chains back via cont)

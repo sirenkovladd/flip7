@@ -6,7 +6,7 @@
 import * as FX from '/fx.js?v=0.3.0';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.3.0';
+const APP_V = '0.3.1';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -550,12 +550,16 @@ function renderChoice() {
     if (needVictim) {
       $('choiceTitle').textContent = `${names[a]} — pick player`;
       const tgts = validTargetsLocal(a);
+      // Nobody pickable (e.g. early game, everyone cardless/busted):
+      // offer the fizzle explicitly instead of stranding the table.
+      if (!tgts.length) { fizzleBox(body, 'Nobody to target'); return; }
       body.innerHTML = `<div class="pickgrid">` + tgts.map((p) =>
         `<button data-t="${p.id}">${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</button>`).join('') + `</div>`;
       body.querySelectorAll('button').forEach((b) => b.onclick = () => { S.choice = { step: 'card', victim: b.dataset.t }; renderChoice(); });
     } else {
       $('choiceTitle').textContent = `${names[a]} — pick card`;
       const cards = faceCards(ch.victim);
+      if (!cards.length) { fizzleBox(body, `${nameOf(ch.victim)} has nothing to take`, true); return; }
       body.innerHTML = `<div class="pickgrid">` + cards.map((c) =>
         `<button data-c="${c.uid}">${esc(c.label)}</button>`).join('') +
         `</div><button id="backBtn" class="link">← back</button>`;
@@ -567,18 +571,32 @@ function renderChoice() {
   }
   $('choiceTitle').textContent = names[a] || a;
   const tgts = validTargetsLocal(a);
-  if (!tgts.length) {
-    body.innerHTML = `<p class="hint">No valid target — action fizzles.</p>`;
-    return;
-  }
+  if (!tgts.length) { fizzleBox(body, 'No valid target'); return; }
   body.innerHTML = `<div class="pickgrid">` + tgts.map((p) =>
     `<button data-t="${p.id}">${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</button>`).join('') + `</div>`;
   body.querySelectorAll('button').forEach((b) => b.onclick = () => doOp({ op: 'actionTarget', targetId: b.dataset.t }));
 }
 
+function nameOf(pid) {
+  const p = (S.snap.players || []).find((x) => x.id === pid);
+  return p ? p.name : 'that player';
+}
+// Dead-end escape hatch: discards the pending action instead of soft-locking
+// the table when nothing (or nothing left) is legally pickable.
+function fizzleBox(body, why, withBack) {
+  $('choiceTitle').textContent = 'No valid target';
+  body.innerHTML = `<p class="hint">${esc(why)} — the card fizzles and is discarded.</p>` +
+    `<div class="pickgrid"><button id="fizzleBtn">OK, discard</button></div>` +
+    (withBack ? `<button id="backBtn" class="link">← back</button>` : '');
+  $('fizzleBtn').onclick = () => doOp({ op: 'actionTarget' });
+  const back = $('backBtn');
+  if (back) back.onclick = () => { S.choice = {}; renderChoice(); };
+}
 function renderSwapPicker(body, ch) {
   $('choiceTitle').textContent = ch.first ? 'Swap: pick SECOND card (another player)' : 'Swap: pick FIRST card';
   const ps = alivePlayers();
+  const allFaces = ps.flatMap((p) => faceCards(p.id));
+  if (new Set(allFaces.map((c) => c.owner)).size < 2) { fizzleBox(body, 'Swap needs two cards on different lines'); return; }
   let html = '';
   for (const p of ps) {
     const cards = faceCards(p.id).filter((c) => !ch.first || (c.owner !== ch.first.owner));

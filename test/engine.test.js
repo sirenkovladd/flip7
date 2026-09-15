@@ -177,6 +177,46 @@ describe('roster', () => {
   });
 });
 
+describe('stale picks fizzle, never stuck, never leak', () => {
+  function rigged(mode = 'vengeance') {
+    const g = createGame({ mode, players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], rand: quietRand });
+    startRound(g);
+    g.phase = 'turns'; g.turnIdx = 0;
+    for (const p of g.players) { p.hand = []; p.mods = []; p.status = 'active'; }
+    g.deck = [];
+    return g;
+  }
+  it('steal on a busted victim fizzles', () => {
+    const g = rigged();
+    const [a, b] = g.players;
+    b.hand = [numCard(9)]; b.status = 'busted';
+    const st = actionCard('steal');
+    g.pending = { kind: 'actionChoice', holderId: 'a', card: st, cont: { after: 'turn' } };
+    resolveActionChoice(g, { holderId: 'a', targetId: 'b', cardUid: b.hand[0].uid });
+    assert.equal(b.hand.length, 1); // untouched
+    assert.ok(g.discard.some((c) => c.uid === st.uid)); // consumed
+    assert.equal(g.pending, null);
+  });
+  it('swap with no selection fizzles', () => {
+    const g = rigged();
+    g.players[0].hand = [numCard(3)];
+    const sw = actionCard('swap');
+    g.pending = { kind: 'actionChoice', holderId: 'a', card: sw, cont: { after: 'turn' } };
+    resolveActionChoice(g, { holderId: 'a' }); // bare fizzle from UI
+    assert.ok(g.discard.some((c) => c.uid === sw.uid));
+    assert.equal(g.pending, null);
+  });
+  it('discard of a vanished card fizzles', () => {
+    const g = rigged();
+    g.players[1].hand = [numCard(4)];
+    const dc = actionCard('discard');
+    g.pending = { kind: 'actionChoice', holderId: 'a', card: dc, cont: { after: 'turn' } };
+    resolveActionChoice(g, { holderId: 'a', targetId: 'b', cardUid: 'nope' });
+    assert.equal(g.players[1].hand.length, 1);
+    assert.ok(g.discard.some((c) => c.uid === dc.uid));
+  });
+});
+
 describe('classic basics', () => {
   it('x2 doubles numbers only, then plus, then +15', () => {
     const g = newGame('classic', ['A']);
