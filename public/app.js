@@ -3,10 +3,10 @@
 // + UI (personal view default, Table toggle). No P2P: WS to Go server.
 'use strict';
 
-import * as FX from '/fx.js?v=0.3.0';
+import * as FX from '/fx.js?v=0.3.2';
 
 const $ = (id) => document.getElementById(id);
-const APP_V = '0.3.1';
+const APP_V = '0.3.2';
 
 let E = null; // engine module, loaded lazily on host
 async function engine() {
@@ -248,7 +248,6 @@ function mePlayer() {
   if (!S.snap) return null;
   return (S.snap.players || []).find((p) => p.id === S.me.id) || null;
 }
-function alivePlayers() { return (S.snap?.players || []).filter((p) => p.status !== 'busted'); }
 
 function render() {
   $('tableToggleWrap').hidden = !(S.room && (S.snap || S.me.isHost));
@@ -508,25 +507,14 @@ function renderNotices() {
 }
 
 // ---------- pending choice picker ----------
+// Listing rules live in fx.js (unit-tested); these are thin bindings so the
+// UI can never diverge from the tested logic.
 function validTargetsLocal(action) {
-  const ps = S.snap.players || [];
-  const me = S.me.id;
-  if (S.snap.mode === 'classic') {
-    if (action === 'freeze' || action === 'flipThree') return ps.filter((p) => p.status === 'active' && p.id !== me);
-    if (action === 'secondChance') return ps.filter((p) => p.status === 'active' && !p.shield);
-    return [];
-  }
-  const alive = ps.filter((p) => p.status !== 'busted');
-  if (action === 'steal') return alive.filter((p) => p.id !== me && ((p.hand || []).length + (p.mods || []).length) > 0);
-  if (action === 'discard') return alive.filter((p) => ((p.hand || []).length + (p.mods || []).length) > 0);
-  return alive;
+  if (action === 'steal') return FX.stealVictims(S.snap, S.me.id);
+  if (action === 'discard') return FX.discardVictims(S.snap, S.me.id);
+  return FX.actionVictims(S.snap, S.me.id, action);
 }
-function faceCards(pid) {
-  const p = (S.snap.players || []).find((x) => x.id === pid);
-  if (!p) return [];
-  return [...(p.hand || []).map((c) => ({ ...c, owner: pid, where: 'hand' })),
-    ...(p.mods || []).map((c) => ({ ...c, owner: pid, where: 'mods' }))];
-}
+function faceCards(pid) { return FX.faceCardsOf(S.snap, pid); }
 
 function renderChoice() {
   const panel = $('choicePanel'), body = $('choiceBody');
@@ -536,7 +524,7 @@ function renderChoice() {
   const ch = S.choice;
   if (pend.kind === 'modifierChoice') {
     $('choiceTitle').textContent = `Give ${pend.card.label} to…`;
-    const tgts = S.snap.brutal ? S.snap.players : alivePlayers();
+    const tgts = FX.modifierTargets(S.snap, S.snap.brutal);
     body.innerHTML = `<div class="pickgrid">` + tgts.map((p) =>
       `<button data-t="${p.id}">${esc(p.name)}${p.id === S.me.id ? ' (you)' : ''}</button>`).join('') + `</div>`;
     body.querySelectorAll('button').forEach((b) => b.onclick = () => doOp({ op: 'modifierTarget', targetId: b.dataset.t }));
@@ -594,9 +582,8 @@ function fizzleBox(body, why, withBack) {
 }
 function renderSwapPicker(body, ch) {
   $('choiceTitle').textContent = ch.first ? 'Swap: pick SECOND card (another player)' : 'Swap: pick FIRST card';
-  const ps = alivePlayers();
-  const allFaces = ps.flatMap((p) => faceCards(p.id));
-  if (new Set(allFaces.map((c) => c.owner)).size < 2) { fizzleBox(body, 'Swap needs two cards on different lines'); return; }
+  const ps = FX.actionVictims(S.snap, S.me.id, 'swap');
+  if (!FX.swapReady(S.snap).ok) { fizzleBox(body, 'Swap needs two cards on different lines'); return; }
   let html = '';
   for (const p of ps) {
     const cards = faceCards(p.id).filter((c) => !ch.first || (c.owner !== ch.first.owner));
@@ -621,6 +608,8 @@ function renderSwapPicker(body, ch) {
 
 // ---------- wiring ----------
 function init() {
+  $('verHome').textContent = 'v' + APP_V;
+  $('verLobby').textContent = 'v' + APP_V;
   const q = new URLSearchParams(location.search);
   if (q.get('r')) $('codeInput').value = q.get('r').toUpperCase();
   if (q.get('p')) { $('joinPassInput').value = q.get('p'); S.pass = q.get('p'); }

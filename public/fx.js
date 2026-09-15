@@ -59,6 +59,49 @@ export function findDuplicateUid(hand) {
   return hand.length ? hand[hand.length - 1].uid : null;
 }
 
+// ---------- picker rules (pure): who/what is legally pickable ----------
+// Mirrors engine validActionTargets/validModifierTargets for UI listing.
+// Busted seats are NEVER pickable; steal/discard need face-up cards.
+function aliveNotBusted(snap) {
+  return (snap?.players || []).filter((p) => p.status !== 'busted');
+}
+function withCards(ps) {
+  return ps.filter((p) => ((p.hand || []).length + (p.mods || []).length) > 0);
+}
+export function stealVictims(snap, holderId) {
+  return withCards(aliveNotBusted(snap).filter((p) => p.id !== holderId));
+}
+export function discardVictims(snap, holderId) { // eslint-disable-line no-unused-vars
+  return withCards(aliveNotBusted(snap));
+}
+export function modifierTargets(snap, brutal) {
+  return brutal ? (snap?.players || []) : aliveNotBusted(snap);
+}
+export function actionVictims(snap, holderId, action) {
+  const ps = snap?.players || [];
+  if (snap?.mode === 'classic') {
+    if (action === 'freeze' || action === 'flipThree')
+      return ps.filter((p) => p.status === 'active' && p.id !== holderId);
+    if (action === 'secondChance')
+      return ps.filter((p) => p.status === 'active' && !p.shield);
+    return [];
+  }
+  const alive = aliveNotBusted(snap);
+  if (action === 'steal') return withCards(alive.filter((p) => p.id !== holderId));
+  if (action === 'discard') return withCards(alive);
+  return alive; // justOneMore, flipFour, swap handled at card level
+}
+export function faceCardsOf(snap, pid) {
+  const p = (snap?.players || []).find((x) => x.id === pid);
+  if (!p || p.status === 'busted') return [];
+  return [...(p.hand || []).map((c) => ({ ...c, owner: pid })),
+    ...(p.mods || []).map((c) => ({ ...c, owner: pid }))];
+}
+export function swapReady(snap) {
+  const faces = aliveNotBusted(snap).flatMap((p) => faceCardsOf(snap, p.id));
+  return { faces, ok: new Set(faces.map((c) => c.owner)).size >= 2 };
+}
+
 export function reducedMotion() {
   return typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
