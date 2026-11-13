@@ -1,0 +1,3 @@
+# local cloudflared tunnel log
+.cloudflared.log
+.DS_Store
